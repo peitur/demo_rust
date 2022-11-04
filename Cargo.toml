@@ -6,5 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap
-regex
+rand = "0.8.*"
+clap = "4.0.*"
+regex = "1.6.*"
+
+
+[source]
+
+[source.local]
+directory = "/Users/peter/.cargo/registry/cache/github.com-1ecc6299db9ec823"
