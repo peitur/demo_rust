@@ -11,7 +11,3 @@ clap = "4.0.*"
 regex = "1.6.*"
 
 
-[source]
-
-[source.local]
-directory = "/Users/peter/.cargo/registry/cache/github.com-1ecc6299db9ec823"
