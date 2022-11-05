@@ -113,27 +113,23 @@ def cargo_meta_pkg( pkgfile ):
 
     result = list()
 
-    if not tmp_dir.exists(): tmp_dir.mkdir()
-
     try:
         tar = tarfile.open( pkgfile, "r:gz")
         p = re.compile( r"[^/]+/%s" % (CARGO_FILE) )
         for ti in tar.getmembers():
-            m = p.match( "^(.+/%s)$" % (ti.name) )
-            if m:
-                f=tar.extractfile( m.group(1) )
-                result = re.split("\n", f.read() )
+            if p.match( ti.name ):
+                result = [ x.decode("utf-8").lstrip().rstrip() for x in tar.extractfile( ti.name ).readlines() ]
 
     except KeyError as e:
         return list()
     finally:
-        rmdir_tree( tmp_dir )
         tar.close()
     return result
 
 
 
 def cargo_meta_parse( data ):
+    values = dict()
     ctag = ""
     for line in data:
         line = line.rstrip().lstrip()
@@ -165,6 +161,7 @@ def get_crates( dir ):
     return [ f for f in pathlib.Path( dir ).iterdir() if re.match( ".+\.crate$", f.name ) ]
 
 if __name__ == "__main__":
-    pass    
+    
+    pprint( cargo_meta_parse( cargo_meta_pkg( "trailer/chrono-0.4.22.crate") ) )
 
     
