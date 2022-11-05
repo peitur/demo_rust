@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 
 import os, re, sys
-import pathlib
-
+import pathlib, json
+import tarfile
 
 import subprocess, shlex
 from pprint import pprint
@@ -57,28 +57,109 @@ class GenericCommand( object ):
         return ( prc.returncode, res )
 
 
-def cargo_meta( dir, filename=CARGO_FILE ):
+
+def _read_text( filename ):
+    result = list()
+    try:
+        fd = open( filename, "r" )
+        for line in fd.readlines():
+            result.append( line.lstrip().rstrip() )
+        return result
+    except Exception as e:
+        print("ERROR Reading %s: %s" % ( filename, e ))
+
+    return result
+
+def _read_json( filename ):
+    return json.loads( "\n".join( _read_text( filename ) ) )
+
+def load_file( filename ):
+    filesplit = re.split( r"\.", filename )
+    if filesplit[-1] in ( "json" ):
+        return _read_json( filename )
+    else:
+        return _read_text( filename )
+
+
+def _write_json( filename, data ):
+    return _write_text( filename, json.dumps( data, indent=2, sort_keys=True ) )
+
+def _write_text( filename, data ):
+    fd = open( filename, "w" )
+    fd.write( str( data ) )
+    fd.close()
+
+def write_file( filename, data ):
+    filesplit = re.split( "\.", filename )
+    if filesplit[-1] in ( "json" ):
+        return _write_json( filename, data )
+    else:
+        return _write_text( filename, data )
+
+
+def cargo_meta_file( filepath, filename=CARGO_FILE ):
     values = dict()
     cfile = "%s/%s" % ( dir, filename )
     with open( cfile, "r" ) as fd:
-        ctag = ""            
-
         for line in fd.readlines():
             line = line.rstrip().lstrip()
-
             if re.match( r"^\s*#.*" , line ) or len( line ) == 0:
                 continue
-
-            c_rx = re.match( r"\[\s*(\S+)\s*\]", line )
-            if c_rx:
-                ctag = c_rx.group(1)
+            values.append( line )
+    return values
             
-            l_rx = re.match( r"^\s*(\S+)\s*=\s*\"(.+)\"", line )
-            if l_rx:
-                values[ "%s.%s" % ( ctag, l_rx.group(1)) ] = l_rx.group(2)
+            
+def cargo_meta_pkg( pkgfile ):
+
+    result = list()
+
+    if not tmp_dir.exists(): tmp_dir.mkdir()
+
+    try:
+        tar = tarfile.open( pkgfile, "r:gz")
+        p = re.compile( r"[^/]+/%s" % (CARGO_FILE) )
+        for ti in tar.getmembers():
+            m = p.match( "^(.+/%s)$" % (ti.name) )
+            if m:
+                f=tar.extractfile( m.group(1) )
+                result = re.split("\n", f.read() )
+
+    except KeyError as e:
+        return list()
+    finally:
+        rmdir_tree( tmp_dir )
+        tar.close()
+    return result
+
+
+
+def cargo_meta_parse( data ):
+    ctag = ""
+    for line in data:
+        line = line.rstrip().lstrip()
+
+        if re.match( r"^\s*#.*" , line ) or len( line ) == 0:
+            continue
+
+        c_rx = re.match( r"\[\s*(\S+)\s*\]", line )
+        if c_rx:
+            ctag = c_rx.group(1)
+        
+        l_rx = re.match( r"^\s*(\S+)\s*=\s*\"(.+)\"", line )
+        if l_rx:
+            values[ "%s.%s" % ( ctag, l_rx.group(1)) ] = l_rx.group(2)
                 
     return values
 
+
+def rmdir_tree( path ):
+    pth = pathlib.Path( path )
+    for sub in pth.iterdir() :
+        if sub.is_dir() :
+            rmdir_tree(sub)
+        else:
+            sub.unlink()
+    pth.rmdir()
 
 def get_crates( dir ):
     return [ f for f in pathlib.Path( dir ).iterdir() if re.match( ".+\.crate$", f.name ) ]
