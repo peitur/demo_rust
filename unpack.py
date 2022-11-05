@@ -98,8 +98,8 @@ def write_file( filename, data ):
 
 
 def cargo_meta_file( filepath, filename=CARGO_FILE ):
-    values = dict()
-    cfile = "%s/%s" % ( dir, filename )
+    values = list()
+    cfile = "%s/%s" % ( filepath, filename )
     with open( cfile, "r" ) as fd:
         for line in fd.readlines():
             line = line.rstrip().lstrip()
@@ -163,5 +163,6 @@ def get_crates( dir ):
 if __name__ == "__main__":
     
     pprint( cargo_meta_parse( cargo_meta_pkg( "trailer/chrono-0.4.22.crate") ) )
+    pprint( cargo_meta_parse( cargo_meta_file( "vendor/clap") ) )
 
     
