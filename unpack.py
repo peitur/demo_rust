@@ -4,6 +4,7 @@ import os, re, sys
 import pathlib, json
 import tarfile
 import logging
+import pkg_resources
 
 import subprocess, shlex
 from pprint import pprint
@@ -14,53 +15,76 @@ DEFAULT_TARGET="vendor"
 CARGO_FILE="Cargo.toml"
 
 CRAATE_IMPORT_OVERWRITE=True
+############
 
+class Version( object ):
+    def __init__( self, v ):
+        self._split_rx = re.compile( "\." )
+        self._raw_version = v
 
-
-class GenericCommand( object ):
-    
-    def __init__( self, cmd, **opt ):
-        self.__debug = opt.get("debug", False )
-        self.__data = list()        
-        self.__cmd  = cmd
-        self.__opt = opt
-        
-        if type( cmd ).__name__ in ( "str" ):
-            self.__cmd  = shlex.split( cmd )
+        if type( v ).__name__ == "str":
+            self._version = pkg_resources.parse_version( str(v) )
+        elif type( v ).__name__ == "Version":
+            self._version = pkg_resources.parse_version( str(v) )
+        elif type( v ).__name__ == "list":
+            self._version = pkg_resources.parse_version( ".".join( [ str(x) for x in v ] ) )
         else:
-            self.__cmd  = [ str( s ) for s in  cmd ]
+            raise AttributeError("%s not supported format" % ( type(v).__name__ ) )
 
-    def run_iterator( self ):
 
-        if self.__debug: print( "CMD Running:> '%s'" % ( " ".join( self.__cmd ) ) )
-        if self.__just_print:
-             return ( 0, list() )
-         
-        prc = subprocess.Popen( self.__cmd, stdout = subprocess.PIPE, stderr = subprocess.STDOUT, cwd=self.__opt.get( "cwd", None ), universal_newlines=True, shell=False )
-        for line in prc.stdout.readlines():
-            yield line.rstrip()
-            
-            if prc.poll():
-                break
-            
-        return ( prc.returncode, list() )
-        
+    def get( self ):
+        return self._version
 
-    def run_list( self ):
 
-        res = list()
-        
-        if self.__debug: print( "CMD Running:> '%s'" % ( " ".join( self.__cmd ) ) )
+    def __str__( self ):
+        return self._raw_version
 
-        prc = subprocess.Popen( self.__cmd, stdout = subprocess.PIPE, stderr = subprocess.STDOUT, cwd=self.__opt.get( "cwd", None ), universal_newlines=True, shell=False )
-        for line in prc.stdout.readlines():
-            res.append( line.rstrip() )
-            
-            if prc.poll():
-                break
-            
-        return ( prc.returncode, res )
+    def __eq__( self, v ):
+        va = self._version
+        vb = Version( v ).get()
 
+        if va == vb:
+            return True
+        return False
+
+
+    def __ne__( self, v ):
+        return not self.__eq__( v )
+
+    def __lt__( self, v ):
+        va = self._version
+        vb = Version( v ).get()
+
+        if va < vb:
+            return True
+        return False
+    def __le__( self, v ):
+        va = self._version
+        vb = Version( v ).get()
+
+        if va <= vb:
+            return True
+        return False
+
+    def __gt__( self, v ):
+        va = self._version
+        vb = Version( v ).get()
+
+        if va > vb:
+            return True
+        return False
+
+
+    def __ge__( self, v ):
+        va = self._version
+        vb = Version( v ).get()
+
+        if va >= vb:
+            return True
+        return False
+
+
+############
 
 
 def _read_text( filename ):
@@ -166,8 +190,8 @@ def cargo_meta_parse( data ):
 def cargo_extract_source( cratefile,  tpath="." ):
     if not cargo_check_source( cratefile ):
         RuntimeError("Dangerous archive file \"%s\", skipping" % ( cratefile ) )
+    tar = tarfile.open( cratefile )
     try:
-        tar = tarfile.open( cratefile )
         tar.extractall( tpath )
     except:
         return False
@@ -178,9 +202,8 @@ def cargo_extract_source( cratefile,  tpath="." ):
 def cargo_check_source( pkgfile ):
      
     rxl = [ re.compile("^/.+"), re.compile("\.\./") ]
-     
+    tar = tarfile.open( pkgfile, "r:gz")     
     try:
-        tar = tarfile.open( pkgfile, "r:gz")
         for ti in tar.getmembers():
             
             for rx in rxl:
@@ -206,36 +229,72 @@ def rmdir_tree( path ):
 def get_crates( dir ):
     return [ f for f in pathlib.Path( dir ).iterdir() if re.match( ".+\.crate$", f.name ) ]
 
+def get_imported( dir ):
+    return [ f for f in pathlib.Path( dir ).iterdir() if f.is_dir() ]
+
+def highest_version( cratelist ):
+    if len( cratelist ) == 0:
+        return None
+    
+    if len( cratelist ) > 1:
+        highest =  cratelist[0]
+        for item in cratelist:
+            if Version( item['version'] ) > Version( highest['version'] ):
+                highest = item
+        return highest
+    else:
+        return cratelist[0]
+
 if __name__ == "__main__":
     
-    known_cratews = dict()
+    seen_crates = dict()
+    pending_crates_meta = dict()
+    imported_crates_meta = dict()
+    work_list = dict()
+    
     try:
         spath = sys.argv[1]
         tpath = sys.argv[2]
         
         crate_list = get_crates( spath )
+        imported_list = get_imported( tpath )
         
         print( "Reading crates from \"%s\"" % ( spath ) )
         print( "Importing to \"%s\"" % ( tpath ) )
-        print("Found %s crates in \"%s\"" % ( len( crate_list), spath) )
-        for crate in crate_list:
-            filename =  crate.name
-            crt_meta = cargo_meta_parse( cargo_meta_pkg( str( crate ) ) )
+        print("Found %s crates in \"%s\"" % ( len( crate_list ), spath) )
+        print("Found %s crates in \"%s\"" % ( len( imported_list ), tpath) )
+        
+        for impc in [ cargo_meta_parse( cargo_meta_file( str( i ) ) ) for i in imported_list ]:
+            imported_crates_meta[ impc['package.name'] ] = {"name": impc['package.name'], "version":impc['package.version'] }
+        
+        for pkg in crate_list:
+            impc = cargo_meta_parse( cargo_meta_pkg( str( pkg ) ) )
+            if impc['package.name'] not in pending_crates_meta:
+                pending_crates_meta[ impc['package.name'] ] = list()
+            pending_crates_meta[ impc['package.name'] ].append( {"name": impc['package.name'], "version":impc['package.version'], "filename": pkg } )
+        
+        for p in pending_crates_meta:
+            work_list[ p ] = highest_version( pending_crates_meta[ p ] )
+
+        for item in work_list:
             
-            print(" - \"%s\" = \"%s\" # \"%s\"" % ( crt_meta['package.name'], crt_meta['package.version'], filename ), end=" " )
+            crate = str( work_list[ item ]['filename'] )
+            crt_meta = work_list[ item ]        
+            
+            print(" - \"%s\" = \"%s\" # \"%s\"" % ( crt_meta['name'], crt_meta['version'], crate ), end=" " )
 
             if cargo_extract_source( str( crate ), tpath ):
                 crt_unp_name = cargo_meta_unpack_path( str( crate ) )
                 crt_unp_path = pathlib.Path( "%s/%s" % ( tpath, crt_unp_name ) )
-                crt_target = pathlib.Path( "%s/%s" %( tpath, crt_meta['package.name'] ) )
+                crt_target = pathlib.Path( "%s/%s" %( tpath, crt_meta['name'] ) )
                 crt_rollback_path = pathlib.Path("%s.old" % ( crt_target ) )
                 
                 if not crt_unp_path.exists():
                     raise OSError("Could not intended crate directory \"%s\"" % ( crt_unp_path ) )
                 
                 if crt_target.exists() and CRAATE_IMPORT_OVERWRITE:
-                    inst_crt_meta = cargo_meta_parse( cargo_meta_file( str( crt_target ) ) )
-                    print( ": Found crate \"%s\" version \"%s\", overwriting with version \"%s\"" % ( inst_crt_meta['package.name'], inst_crt_meta['package.version'], crt_meta['package.version'] ), end=" " )
+                    inst_crt_meta = imported_crates_meta[ item['name' ] ]
+                    print( ": Found crate \"%s\" version \"%s\", overwriting with version \"%s\"" % ( inst_crt_meta['name'], inst_crt_meta['version'], crt_meta['version'] ), end=" " )
                     crt_target.rename( crt_rollback_path )
                 
                 try:
