@@ -299,16 +299,22 @@ def directory_content_checksum( root, path, chmsumfile=CARGO_CHECKSUM_FILE ):
 
     for item in dirtree( root, path ):
         res[ str( item ) ] = file_hash( "%s/%s" %( root, str( item ) ), CARGO_CHECKSUM_ALGO )
-
-    if chmsumfile and res:
-        sumfile = "%s/%s/%s" %( root, path, chmsumfile )
-        if pathlib.Path( sumfile ).exists():
-            pathlib.Path( sumfile ).unlink()
-        f = open( sumfile, "w" )
-        f.write( json.dump( res, f ) )
-        f.close()
         
-    return len( res )
+    return res
+
+def create_checksum( root, path, cratefile, chmsumfile=CARGO_CHECKSUM_FILE ):
+
+    res = dict()
+    
+    res['files' ] = directory_content_checksum( root, path, chmsumfile )
+    res["package"] = file_hash( cratefile )
+    
+    sumfile = "%s/%s/%s" %( root, path, chmsumfile )
+    if pathlib.Path( sumfile ).exists():
+        pathlib.Path( sumfile ).unlink()
+    f = open( sumfile, "w" )
+    f.write( json.dump( res, f ) )
+    f.close()
 
 if __name__ == "__main__":
     
@@ -365,7 +371,7 @@ if __name__ == "__main__":
                 
                 try:
                     crt_unp_path.rename( crt_target )
-                    directory_content_checksum( crt_target, "." )
+                    create_checksum( crt_target, ".", crate )
                     if crt_rollback_path.exists( ) and CRAATE_IMPORT_OVERWRITE:
                         shutil.rmtree( str( crt_rollback_path ) )
                                 
