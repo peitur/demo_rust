@@ -4,6 +4,8 @@ import os, re, sys
 import pathlib, json
 import tarfile
 import logging
+import shutil
+import hashlib
 import pkg_resources
 
 import subprocess, shlex
@@ -13,6 +15,8 @@ from pprint import pprint
 DEFAULT_SOURCE="trailer"
 DEFAULT_TARGET="vendor"
 CARGO_FILE="Cargo.toml"
+CARGO_CHECKSUM_FILE=".cargo-checksum.json"
+CARGO_CHECKSUM_ALGO="sha256"
 
 CRAATE_IMPORT_OVERWRITE=True
 ############
@@ -86,6 +90,35 @@ class Version( object ):
 
 ############
 
+################################################################################
+## Hashing large files
+################################################################################
+def file_hash( filename, chksum="sha256" ):
+    BLOCKSIZE = 65536
+
+    if chksum == "sha1":
+        hasher = hashlib.sha1()
+    elif chksum == "sha224":
+        hasher = hashlib.sha224()
+    elif chksum == "sha256":
+        hasher = hashlib.sha256()
+    elif chksum == "sha384":
+        hasher = hashlib.sha384()
+    elif chksum == "sha512":
+        hasher = hashlib.sha512()
+    elif chksum == "md5":
+        hasher = hashlib.md5()
+    else:
+        hasher = hashlib.sha256()
+
+    with open( filename, 'rb') as f:
+        buf = f.read(BLOCKSIZE)
+        while len(buf) > 0:
+            hasher.update(buf)
+            buf = f.read(BLOCKSIZE)
+    return hasher.hexdigest()
+
+################################################################################
 
 def _read_text( filename ):
     result = list()
@@ -245,12 +278,42 @@ def highest_version( cratelist ):
     else:
         return cratelist[0]
 
+def dirtree( root, path ):
+    res = list()
+    for item in pathlib.Path( "%s/%s" % (root, path) ).iterdir():
+
+        pathparts = item.parts
+        rootparts = pathlib.Path( root ).parts
+        ppath = "/".join( pathparts[ len( rootparts ): ] )
+
+        if item.is_dir():
+            res = res + dirtree( root, ppath )
+        else:
+            res.append( ppath )
+
+    return res
+    
+
+def directory_content_checksum( root, path, chmsumfile=CARGO_CHECKSUM_FILE ):
+    res = dict()
+
+    for item in dirtree( root, path ):
+        res[ str( item ) ] = file_hash( "%s/%s" %( root, str( item ) ), CARGO_CHECKSUM_ALGO )
+
+    if chmsumfile and res:
+        f = open( "%s/%s/%s" %( root, path, chmsumfile ), "w" )
+        f.write( json.dump( res, f ) )
+        f.close()
+        
+    return len( res )
+
 if __name__ == "__main__":
     
     seen_crates = dict()
     pending_crates_meta = dict()
     imported_crates_meta = dict()
     work_list = dict()
+    
     
     try:
         spath = sys.argv[1]
@@ -293,14 +356,16 @@ if __name__ == "__main__":
                     raise OSError("Could not intended crate directory \"%s\"" % ( crt_unp_path ) )
                 
                 if crt_target.exists() and CRAATE_IMPORT_OVERWRITE:
-                    inst_crt_meta = imported_crates_meta[ item['name' ] ]
+                    inst_crt_meta = imported_crates_meta[ crt_meta['name' ] ]
                     print( ": Found crate \"%s\" version \"%s\", overwriting with version \"%s\"" % ( inst_crt_meta['name'], inst_crt_meta['version'], crt_meta['version'] ), end=" " )
                     crt_target.rename( crt_rollback_path )
                 
                 try:
                     crt_unp_path.rename( crt_target )
+                    directory_content_checksum( crt_target, "." )
                     if crt_rollback_path.exists( ) and CRAATE_IMPORT_OVERWRITE:
-                        rmdir_tree( str( crt_rollback_path ) )
+                        shutil.rmtree( str( crt_rollback_path ) )
+                                
                 except:
                     if crt_rollback_path.exists():
                         crt_rollback_path.rename( crt_target )
