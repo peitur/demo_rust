@@ -301,7 +301,10 @@ def directory_content_checksum( root, path, chmsumfile=CARGO_CHECKSUM_FILE ):
         res[ str( item ) ] = file_hash( "%s/%s" %( root, str( item ) ), CARGO_CHECKSUM_ALGO )
 
     if chmsumfile and res:
-        f = open( "%s/%s/%s" %( root, path, chmsumfile ), "w" )
+        sumfile = "%s/%s/%s" %( root, path, chmsumfile )
+        if pathlib.Path( sumfile ).exists():
+            pathlib.Path( sumfile ).unlink()
+        f = open( sumfile, "w" )
         f.write( json.dump( res, f ) )
         f.close()
         
