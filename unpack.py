@@ -371,6 +371,7 @@ if __name__ == "__main__":
                                 
                 except:
                     if crt_rollback_path.exists():
+                        shutil.rmtree( str( crt_target ) )
                         crt_rollback_path.rename( crt_target )
             print()
             
